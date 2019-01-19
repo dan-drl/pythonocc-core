@@ -27,6 +27,7 @@ from OCC.Display import OCCViewer
 from OCC.Display.backend import get_qt_modules
 
 QtCore, QtGui, QtWidgets, QtOpenGL = get_qt_modules()
+
 # check if signal available, not available
 # on PySide
 HAVE_PYQT_SIGNAL = hasattr(QtCore, 'pyqtSignal')
@@ -35,12 +36,20 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 
-class qtBaseViewer(QtOpenGL.QGLWidget):
+# the base class depends on the PyQt version
+# see https://blog.qt.io/blog/2014/09/10/qt-weekly-19-qopenglwidget/
+# check pyqt >=5.4
+major, minor, patch = map(int, QtCore.QT_VERSION_STR.split('.'))
+if (major == 5 and minor >= 4) or (major > 5):
+    BaseClass = QtWidgets.QOpenGLWidget
+else:
+    BaseClass = QtOpenGL.QGLWidget
+
+class qtBaseViewer(BaseClass):
     ''' The base Qt Widget for an OCC viewer
     '''
-
     def __init__(self, parent=None):
-        QtOpenGL.QGLWidget.__init__(self, parent)
+        BaseClass.__init__(self, parent)
         self._display = None
         self._inited = False
 
@@ -104,7 +113,7 @@ class qtViewer3d(qtBaseViewer):
         self._rightisdown = False
         self._selection = None
         self._drawtext = True
-        self._qApp = QtWidgets.QApplication.instance() 
+        self._qApp = QtWidgets.QApplication.instance()
         self._key_map = {}
         self._current_cursor = "arrow"
         self._available_cursors = {}
@@ -119,19 +128,19 @@ class qtViewer3d(qtBaseViewer):
         self._qApp = value
 
     def InitDriver(self):
-        self._display = OCCViewer.Viewer3d(self.GetHandle())
+        self._display = OCCViewer.Viewer3d(window_handle=self.GetHandle(), parent=self)
         self._display.Create()
         # background gradient
-        self._display.set_bg_gradient_color(206, 215, 222, 128, 128, 128)
-        # background gradient
-        self._display.display_trihedron()
         self._display.SetModeShaded()
-        self._display.DisableAntiAliasing()
         self._inited = True
         # dict mapping keys to functions
-        self._SetupKeyMap()
-        #
-        self._display.thisown = False
+        self._key_map = {ord('W'): self._display.SetModeWireFrame,
+                         ord('S'): self._display.SetModeShaded,
+                         ord('A'): self._display.EnableAntiAliasing,
+                         ord('B'): self._display.DisableAntiAliasing,
+                         ord('H'): self._display.SetModeHLR,
+                         ord('F'): self._display.FitAll,
+                         ord('G'): self._display.SetSelectionMode}
         self.createCursors()
 
     def createCursors(self):
@@ -153,25 +162,14 @@ class qtViewer3d(qtBaseViewer):
 
         self._current_cursor = "arrow"
 
-    def _SetupKeyMap(self):
-        self._key_map = {ord('W'): self._display.SetModeWireFrame,
-                         ord('S'): self._display.SetModeShaded,
-                         ord('A'): self._display.EnableAntiAliasing,
-                         ord('B'): self._display.DisableAntiAliasing,
-                         ord('H'): self._display.SetModeHLR,
-                         ord('F'): self._display.FitAll,
-                         ord('G'): self._display.SetSelectionMode}
-
     def keyPressEvent(self, event):
         code = event.key()
         if code in self._key_map:
             self._key_map[code]()
+        elif code in range(256):
+            log.info('key: "%s"(code %i) not mapped to any function' % (chr(code), code))
         else:
-            log.info("key: %s \nnot mapped to any function", code)
-
-    def Test(self):
-        if self._inited:
-            self._display.Test()
+            log.info('key: code %i not mapped to any function' % code)
 
     def focusInEvent(self, event):
         if self._inited:
@@ -181,20 +179,20 @@ class qtViewer3d(qtBaseViewer):
         if self._inited:
             self._display.Repaint()
 
-    def paintEvent(self, event):
-        if self._inited:
-            self._display.Context.UpdateCurrentViewer()
-            # important to allow overpainting of the OCC OpenGL context in Qt
-            self.swapBuffers()
-
-        if self._drawbox:
-            painter = QtGui.QPainter(self)
-            painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
-            rect = QtCore.QRect(*self._drawbox)
-            painter.drawRect(rect)
-
-    def ZoomAll(self, evt):
-        self._display.FitAll()
+    # def paintGL(self):
+    #     print("paintgl!!!")
+    #     if self._drawbox:
+    #         painter = QtGui.QPainter(self)
+    #         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
+    #         rect = QtCore.QRect(*self._drawbox)
+    #         painter.drawRect(rect)
+    # def paintEvent(self, event):
+    #     print("Paint event!!")
+    #     if self._drawbox:
+    #         painter = QtGui.QPainter(self)
+    #         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
+    #         rect = QtCore.QRect(*self._drawbox)
+    #         painter.drawRect(rect)
 
     def wheelEvent(self, event):
         try:  # PyQt4/PySide
@@ -207,9 +205,6 @@ class qtViewer3d(qtBaseViewer):
             zoom_factor = 0.5
         self._display.Repaint()
         self._display.ZoomFactor(zoom_factor)
-
-    def dragMoveEvent(self, event):
-        pass
 
     @property
     def cursor(self):
@@ -271,7 +266,12 @@ class qtViewer3d(qtBaseViewer):
         if abs(dx) <= tolerance and abs(dy) <= tolerance:
             return
         self._drawbox = [self.dragStartPosX, self.dragStartPosY, dx, dy]
-        self.update()
+        #self.update()
+        #print("Called self.update")
+        painter = QtGui.QPainter(self)
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
+        rect = QtCore.QRect(*self._drawbox)
+        painter.drawRect(rect)
 
     def mouseMoveEvent(self, evt):
         pt = evt.pos()
