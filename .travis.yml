@@ -109,7 +109,9 @@ before_install:
   - conda config --add channels https://conda.anaconda.org/tpaviot
   - conda config --add channels https://conda.anaconda.org/oce
   - conda config --add channels https://conda.anaconda.org/pythonocc
-  
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+      brew install valgrind;
+    fi;  
 
 
 script:
