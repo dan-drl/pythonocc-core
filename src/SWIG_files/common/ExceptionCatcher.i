@@ -31,7 +31,6 @@ Exception handling
 {
     try
     {
-        OCC_CATCH_SIGNALS
         $action
     } 
     catch(Standard_Failure)
